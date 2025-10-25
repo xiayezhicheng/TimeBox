@@ -12,7 +12,10 @@ import {
 } from '../utils/datetime'
 
 const SLOT_MINUTES = 30
-const TOTAL_MINUTES = 24 * 60
+const VIEW_START_MINUTES = 8 * 60
+const VIEW_END_MINUTES = 26 * 60
+const VISIBLE_MINUTES = VIEW_END_MINUTES - VIEW_START_MINUTES
+const DAY_MINUTES = 24 * 60
 
 const timeboxes = useTimeboxStore()
 const settings = useSettingsStore()
@@ -31,11 +34,23 @@ const dayBoxes = computed(() => timeboxes.timeboxesForDate(selectedDate.value))
 const sortedDayBoxes = computed(() =>
   [...dayBoxes.value].sort((a, b) => timeToMinutes(a.start) - timeToMinutes(b.start)),
 )
+const visibleHours = computed(() => {
+  const startHour = VIEW_START_MINUTES / 60
+  const endHour = VIEW_END_MINUTES / 60
+  return Array.from({ length: endHour - startHour + 1 }, (_, index) => startHour + index)
+})
 
 const selectionStyle = computed(() => {
   if (!selection.active) return null
-  const top = (Math.min(selection.start, selection.end) / TOTAL_MINUTES) * 100
-  const height = (Math.abs(selection.end - selection.start) / TOTAL_MINUTES) * 100 || 0.5
+  const start = Math.min(selection.start, selection.end)
+  const end = Math.max(selection.start, selection.end)
+  const extendedStart = toExtendedMinutes(start)
+  const extendedEnd = toExtendedMinutes(end)
+  const clampedStart = Math.min(Math.max(extendedStart, VIEW_START_MINUTES), VIEW_END_MINUTES)
+  const clampedEnd = Math.min(Math.max(extendedEnd, VIEW_START_MINUTES), VIEW_END_MINUTES)
+  const visibleSpan = Math.max(clampedEnd - clampedStart, SLOT_MINUTES / 2)
+  const top = ((clampedStart - VIEW_START_MINUTES) / VISIBLE_MINUTES) * 100
+  const height = (visibleSpan / VISIBLE_MINUTES) * 100
   return {
     top: `${top}%`,
     height: `${height}%`,
@@ -65,8 +80,11 @@ function minutesFromPointer(event: PointerEvent): number {
   const rect = el.getBoundingClientRect()
   const offset = event.clientY - rect.top
   const ratio = Math.max(0, Math.min(1, offset / rect.height))
-  const minutes = Math.round((ratio * TOTAL_MINUTES) / SLOT_MINUTES) * SLOT_MINUTES
-  return Math.max(0, Math.min(TOTAL_MINUTES, minutes))
+  const viewMinutes =
+    Math.round((ratio * VISIBLE_MINUTES) / SLOT_MINUTES) * SLOT_MINUTES + VIEW_START_MINUTES
+  const clamped = Math.max(VIEW_START_MINUTES, Math.min(VIEW_END_MINUTES, viewMinutes))
+  const dayMinutes = clamped >= DAY_MINUTES ? clamped - DAY_MINUTES : clamped
+  return dayMinutes
 }
 
 function handlePointerDown(event: PointerEvent) {
@@ -95,7 +113,7 @@ function handlePointerUp(_event: PointerEvent) {
   const duration = Math.max(SLOT_MINUTES, end - start || SLOT_MINUTES)
 
   dialogData.start = start
-  dialogData.end = Math.min(start + duration, TOTAL_MINUTES)
+  dialogData.end = Math.min(start + duration, DAY_MINUTES)
   dialogData.type = 'input'
   selection.active = false
   dialogOpen.value = true
@@ -168,11 +186,21 @@ function goToday() {
 }
 
 function boxStyle(box: Timebox) {
-  const start = timeToMinutes(box.start)
-  const duration = timeboxes.durationOf(box)
+  const rawStart = timeToMinutes(box.start)
+  const rawEnd = timeToMinutes(box.end)
+  const extendedStart = toExtendedMinutes(rawStart)
+  const extendedEnd =
+    rawEnd < rawStart ? toExtendedMinutes(rawEnd + DAY_MINUTES) : toExtendedMinutes(rawEnd)
+  const clampedStart = Math.max(extendedStart, VIEW_START_MINUTES)
+  const clampedEnd = Math.min(extendedEnd, VIEW_END_MINUTES)
+  if (clampedEnd <= VIEW_START_MINUTES || clampedStart >= VIEW_END_MINUTES) {
+    return { display: 'none' }
+  }
+  const top = ((clampedStart - VIEW_START_MINUTES) / VISIBLE_MINUTES) * 100
+  const height = Math.max(((clampedEnd - clampedStart) / VISIBLE_MINUTES) * 100, 1)
   return {
-    top: `${(start / TOTAL_MINUTES) * 100}%`,
-    height: `${(duration / TOTAL_MINUTES) * 100}%`,
+    top: `${top}%`,
+    height: `${height}%`,
   }
 }
 
@@ -196,6 +224,18 @@ function weekBoxesFor(date: Date) {
 }
 
 const laterList = computed(() => timeboxes.laterList)
+
+function hourLabel(hour: number): string {
+  if (hour < 24) {
+    return `${hour.toString().padStart(2, '0')}:00`
+  }
+  const wrapped = hour - 24
+  return `${wrapped.toString().padStart(2, '0')}:00`
+}
+
+function toExtendedMinutes(minutes: number): number {
+  return minutes < VIEW_START_MINUTES ? minutes + DAY_MINUTES : minutes
+}
 </script>
 
 <template>
@@ -234,8 +274,8 @@ const laterList = computed(() => timeboxes.laterList)
 
     <section v-if="mode === 'day'" class="plan-day">
       <div class="plan-day__timeline">
-        <span v-for="hour in 24" :key="hour" class="plan-day__tick">
-          {{ hour.toString().padStart(2, '0') }}:00
+        <span v-for="hour in visibleHours" :key="hour" class="plan-day__tick">
+          {{ hourLabel(hour) }}
         </span>
       </div>
       <div
@@ -257,10 +297,12 @@ const laterList = computed(() => timeboxes.laterList)
           :style="boxStyle(box)"
         >
           <header>
-            <strong>{{ timeboxes.formatRange(box) }}</strong>
-            <span>{{ statusLabel(box) }}</span>
+            <span class="plan-day__range">{{ timeboxes.formatRange(box) }}</span>
+            <span class="plan-day__title">
+              {{ box.title || (box.type === 'input' ? '输入练习' : '输出实践') }}
+            </span>
+            <span class="plan-day__status">{{ statusLabel(box) }}</span>
           </header>
-          <p>{{ box.title || (box.type === 'input' ? '输入练习' : '输出实践') }}</p>
         </article>
       </div>
     </section>
@@ -371,15 +413,16 @@ const laterList = computed(() => timeboxes.laterList)
 }
 
 .plan-day__timeline {
-  display: grid;
-  grid-template-rows: repeat(24, 56px);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  height: 1008px;
   color: var(--text-muted);
   font-size: 12px;
-  gap: 0;
 }
 
 .plan-day__tick {
-  align-self: start;
+  display: block;
 }
 
 .plan-day__slots {
@@ -394,7 +437,7 @@ const laterList = computed(() => timeboxes.laterList)
     ),
     #fff;
   border: 1px solid var(--border-subtle);
-  height: 1344px;
+  height: 1008px;
   overflow: hidden;
 }
 
@@ -413,8 +456,9 @@ const laterList = computed(() => timeboxes.laterList)
   right: 8px;
   border-radius: 14px;
   padding: 10px 12px;
-  display: grid;
-  gap: 6px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
   color: #fff;
   background: rgba(15, 98, 254, 0.86);
 }
@@ -426,12 +470,27 @@ const laterList = computed(() => timeboxes.laterList)
 .plan-day__box header {
   display: flex;
   justify-content: space-between;
+  align-items: center;
+  width: 100%;
+  gap: 6px;
   font-size: 12px;
 }
 
-.plan-day__box p {
-  margin: 0;
+.plan-day__range {
+  font-weight: 700;
+  font-size: 12px;
+}
+
+.plan-day__title {
+  flex: 1;
   font-size: 13px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.plan-day__status {
+  font-size: 12px;
 }
 
 .plan-week {

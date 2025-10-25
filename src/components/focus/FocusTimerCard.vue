@@ -45,6 +45,7 @@ const showUrgeConfirm = ref(false)
 const showExtendOption = ref(false)
 const hasRequestedNotification = ref(false)
 const selectedTitle = ref('')
+const showExitPrompt = ref(false)
 
 const runtime = computed(() => sessions.runtime)
 const currentSession = computed(() => sessions.currentSession)
@@ -81,7 +82,10 @@ const circumference = 2 * Math.PI * 120
 const dashOffset = computed(() => circumference * (1 - progress.value))
 
 const urgeActive = computed(() => runtime.value.urgeBuffer.active)
-const urgeRemaining = computed(() => runtime.value.urgeBuffer.remainingSec)
+const urgeRemaining = computed(() => {
+  const seconds = runtime.value.urgeBuffer.remainingSec
+  return formatSecondsToClock(seconds)
+})
 
 watch(
   () => runtime.value.status,
@@ -92,6 +96,7 @@ watch(
       if (!runtime.value.timeboxId) {
         selectedTitle.value = ''
       }
+      showExitPrompt.value = false
     }
     if (status === 'running') {
       selectedType.value = runtime.value.type
@@ -102,6 +107,7 @@ watch(
     }
     if (status !== 'running') {
       showUrgeConfirm.value = false
+      showExitPrompt.value = false
     }
   },
   { immediate: true },
@@ -133,7 +139,7 @@ watch(
   () => timer.remaining.value,
   (value) => {
     if (runtime.value.status === 'running' && value <= 0) {
-      handleStop(true)
+      finalizeStop(true)
     }
   },
 )
@@ -199,7 +205,7 @@ function handlePause() {
   sessions.pauseSession()
 }
 
-function handleStop(auto = false) {
+function finalizeStop(auto = false) {
   sessions.stopSession()
   if (auto) {
     sendNotification('到点就停', {
@@ -208,6 +214,15 @@ function handleStop(auto = false) {
     vibrate()
     playTone()
   }
+  showExitPrompt.value = false
+}
+
+function requestStop() {
+  if (runtime.value.status === 'running' && timer.remaining.value > 0) {
+    showExitPrompt.value = true
+    return
+  }
+  finalizeStop()
 }
 
 async function handleFinalize(notes: { learned: string; stuck: string; next: string }, assets: string[]) {
@@ -256,6 +271,7 @@ function triggerUrgeBuffer() {
   if (runtime.value.status !== 'running') return
   sessions.startUrgeBuffer(Date.now())
   showUrgeConfirm.value = false
+  showExitPrompt.value = false
 }
 
 function handleUrgeStay() {
@@ -270,7 +286,7 @@ function handleUrgeLeave() {
   stats.incrementTenMinRule()
   sessions.resetUrgeBuffer()
   showUrgeConfirm.value = false
-  handleStop()
+  finalizeStop()
 }
 
 async function handleExtend() {
@@ -297,7 +313,7 @@ function handlePrimary() {
       handleStart()
       break
     case 'running':
-      handleStop()
+      requestStop()
       break
     case 'paused':
       sessions.resumeSession()
@@ -380,9 +396,10 @@ const showControls = computed(() => !awaitingReview.value)
           r="120"
           :stroke-dasharray="circumference"
           :stroke-dashoffset="dashOffset"
+          :class="{ 'timer-card__progress--muted': urgeActive }"
         />
       </svg>
-      <div class="timer-card__dial-content">
+      <div class="timer-card__dial-content" :class="{ 'timer-card__dial-content--blur': urgeActive }">
         <span class="timer-card__clock timer-card__clock--primary">{{ remainingClock }}</span>
         <span class="timer-card__type">{{ typeLabel }}</span>
       </div>
@@ -409,7 +426,7 @@ const showControls = computed(() => !awaitingReview.value)
 
     <div v-if="showControls" class="timer-card__actions">
       <div class="timer-card__primary-group" v-if="isRunning || isPaused">
-        <button type="button" class="timer-card__primary" @click="handleStop()">
+        <button type="button" class="timer-card__primary" @click="requestStop">
           结束
         </button>
         <button
@@ -429,19 +446,36 @@ const showControls = computed(() => !awaitingReview.value)
         {{ statusLabel }}
       </button>
 
-      <div v-if="isRunning || isPaused" class="timer-card__secondary">
-        <button type="button" class="timer-card__ghost" :disabled="urgeActive" @click="triggerUrgeBuffer">
-          +10 分钟后再说
-        </button>
-        <button type="button" class="timer-card__ghost" @click="uiStore.openDiscomfortPanel()">
-          不适应对
-        </button>
-      </div>
-
       <div v-if="isRunning" class="timer-card__meta">
         <span>到点就停 · {{ endTimeLabel }} 结束</span>
         <span>已投入 {{ elapsedMinutes }} 分</span>
       </div>
+
+      <teleport to="body">
+        <transition name="fade">
+          <div v-if="showExitPrompt" class="exit-dialog" role="dialog" aria-modal="true">
+            <div class="exit-dialog__backdrop" @click="showExitPrompt = false" aria-hidden="true" />
+            <div class="exit-dialog__panel">
+              <h3>准备离开？</h3>
+              <p>还剩 {{ remainingClock }} ，要不要先缓冲或处理不适？</p>
+              <div class="exit-dialog__actions">
+                <button type="button" @click="() => { triggerUrgeBuffer(); showExitPrompt = false }">
+                  +10 分钟后再说
+                </button>
+                <button type="button" @click="() => { uiStore.openDiscomfortPanel(); showExitPrompt = false }">
+                  启动不适处方
+                </button>
+                <button type="button" class="exit-dialog__danger" @click="() => finalizeStop()">
+                  仍要结束
+                </button>
+              </div>
+              <button type="button" class="exit-dialog__cancel" @click="showExitPrompt = false">
+                继续专注
+              </button>
+            </div>
+          </div>
+        </transition>
+      </teleport>
     </div>
 
     <div v-if="awaitingReview && currentSession" class="timer-card__review">
@@ -579,7 +613,12 @@ const showControls = computed(() => !awaitingReview.value)
   stroke: var(--color-primary);
   stroke-width: 14px;
   stroke-linecap: round;
-  transition: stroke-dashoffset 160ms ease-out;
+  transition: stroke-dashoffset 160ms ease-out, stroke 160ms ease-out, opacity 160ms ease-out;
+}
+
+.timer-card__progress--muted {
+  stroke: color-mix(in srgb, var(--color-primary) 35%, transparent);
+  opacity: 0.7;
 }
 
 .timer-card__dial-content {
@@ -591,6 +630,12 @@ const showControls = computed(() => !awaitingReview.value)
   justify-content: center;
   gap: 8px;
   text-align: center;
+  transition: filter 160ms ease-out, opacity 160ms ease-out;
+}
+
+.timer-card__dial-content--blur {
+  filter: blur(2px);
+  opacity: 0.4;
 }
 
 .timer-card__type {
@@ -631,8 +676,9 @@ const showControls = computed(() => !awaitingReview.value)
 }
 
 .timer-card__overlay-count {
-  font-size: 24px;
+  font-size: 40px;
   font-family: var(--font-mono);
+  font-weight: 700;
 }
 
 .timer-card__urge-confirm {
@@ -724,6 +770,70 @@ const showControls = computed(() => !awaitingReview.value)
   justify-content: space-between;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.exit-dialog {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  z-index: 50;
+}
+
+.exit-dialog__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(8, 16, 28, 0.4);
+}
+
+.exit-dialog__panel {
+  position: relative;
+  z-index: 1;
+  width: min(360px, 90vw);
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  border-radius: 18px;
+  background: var(--surface-raised);
+  box-shadow: var(--shadow-card);
+  border: 1px solid var(--border-subtle);
+  text-align: center;
+}
+
+.exit-dialog__panel h3 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.exit-dialog__panel p {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.exit-dialog__actions {
+  display: grid;
+  gap: 10px;
+}
+
+.exit-dialog__actions button {
+  border-radius: 12px;
+  border: 1px solid var(--border-subtle);
+  padding: 10px;
+  font-weight: 600;
+  background: transparent;
+}
+
+.exit-dialog__danger {
+  border-color: #d93025;
+  color: #d93025;
+}
+
+.exit-dialog__cancel {
+  border: none;
+  background: transparent;
+  color: var(--color-primary);
+  font-weight: 600;
 }
 
 .timer-card__review {
