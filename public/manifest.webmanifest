@@ -1,0 +1,39 @@
+{
+  "id": "/manifest.webmanifest",
+  "name": "时间宝盒",
+  "short_name": "时间宝盒",
+  "description": "用时间盒专注输入与输出，照顾不适，保持持续产出",
+  "lang": "zh-CN",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F6F8FC",
+  "theme_color": "#0F62FE",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "192x192",
+      "type": "image/svg+xml"
+    },
+    {
+      "src": "/icons/icon-maskable.svg",
+      "sizes": "512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["productivity", "education"],
+  "shortcuts": [
+    {
+      "name": "开始专注",
+      "url": "/",
+      "description": "一键开启下一次时间盒"
+    },
+    {
+      "name": "规划今日",
+      "url": "/plan",
+      "description": "快速规划时间盒"
+    }
+  ]
+}
