@@ -2,6 +2,7 @@ import { computed, reactive, ref, watch } from 'vue'
 import { defineStore } from 'pinia'
 import type { Session, SessionNotes, TimeboxType } from '../types/models'
 import { loadSessions, saveSessions } from '../services/storage'
+import { createId } from '../utils/id'
 
 interface RuntimeState {
   status: 'idle' | 'running' | 'paused' | 'awaiting-review'
@@ -93,8 +94,8 @@ export const useSessionsStore = defineStore('sessions', () => {
   }) {
     const startEpoch = payload.startEpoch ?? Date.now()
     const session: Session = {
-      id: crypto.randomUUID(),
-      timeboxId: payload.timeboxId ?? crypto.randomUUID(),
+      id: createId(),
+      timeboxId: payload.timeboxId ?? createId(),
       startEpoch,
       durationSec: 0,
       type: payload.type,

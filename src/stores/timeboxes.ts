@@ -2,6 +2,8 @@ import { computed, ref } from 'vue'
 import { defineStore } from 'pinia'
 import type { LaterItem, Timebox, TimeboxType } from '../types/models'
 import { diffMinutes, minutesToTime, nextDay, timeToMinutes, toDateKey, fromDateKey } from '../utils/datetime'
+import { createId } from '../utils/id'
+import { useSettingsStore } from './settings'
 import {
   loadLaterList,
   loadTimeboxes,
@@ -18,6 +20,7 @@ export interface CreateTimeboxInput {
   autoPair?: boolean
   pairedFromId?: string
   skipOverlapCheck?: boolean
+  skipWhitelistCheck?: boolean
 }
 
 const DAY_MINUTES = 24 * 60
@@ -25,6 +28,8 @@ const MIN_GAP_MINUTES = 15
 const DEFAULT_PAIR_START_MIN = 9 * 60
 
 const sortByStart = (a: Timebox, b: Timebox) => timeToMinutes(a.start) - timeToMinutes(b.start)
+
+export const TITLE_NOT_ALLOWED_ERROR = 'TITLE_NOT_ALLOWED' as const
 
 export const useTimeboxStore = defineStore('timeboxes', () => {
   const timeboxes = ref<Timebox[]>([])
@@ -89,10 +94,22 @@ export const useTimeboxStore = defineStore('timeboxes', () => {
       throw new Error('时间段与现有时间盒冲突')
     }
 
+    if (!input.skipWhitelistCheck && !isTitleAllowed(input.title)) {
+      const fallbackTitle =
+        input.title && input.title.trim()
+          ? input.title.trim()
+          : input.type === 'input'
+            ? '输入任务'
+            : '输出任务'
+      await addLaterItem(fallbackTitle, input.type)
+      const error = new Error(TITLE_NOT_ALLOWED_ERROR)
+      throw error
+    }
+
     const endMinutes = timeToMinutes(input.start) + input.duration
     const endTime = minutesToTime(endMinutes)
     const newBox: Timebox = {
-      id: crypto.randomUUID(),
+      id: createId(),
       date: dateKey,
       start: input.start,
       end: endTime,
@@ -152,13 +169,28 @@ export const useTimeboxStore = defineStore('timeboxes', () => {
 
   async function addLaterItem(title: string, type: TimeboxType) {
     const item: LaterItem = {
-      id: crypto.randomUUID(),
+      id: createId(),
       title,
       type,
       createdAt: new Date().toISOString(),
     }
     laterList.value.push(item)
     await saveLaterList(laterList.value)
+  }
+
+  function isTitleAllowed(title?: string | null): boolean {
+    if (!title) return true
+    const trimmed = title.trim()
+    if (!trimmed) return true
+    const settingsStore = useSettingsStore()
+    const tags = settingsStore.settings.themeTags ?? []
+    if (!tags.length) return true
+    const lowered = trimmed.toLowerCase()
+    return tags.some((tag) => {
+      const normalized = tag?.toString().trim()
+      if (!normalized) return false
+      return lowered.includes(normalized.toLowerCase())
+    })
   }
 
   function detectOverlap(
@@ -192,6 +224,7 @@ export const useTimeboxStore = defineStore('timeboxes', () => {
       title: box.title,
       autoPair: false,
       pairedFromId: box.id,
+      skipWhitelistCheck: true,
     })
     await update(box.id, { pairedId: paired.id })
     await update(paired.id, { pairedId: box.id, autoPaired: true })

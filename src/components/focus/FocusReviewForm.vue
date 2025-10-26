@@ -179,5 +179,6 @@ function handleSubmit() {
   font-weight: 700;
   background: var(--color-primary);
   color: #fff;
+  width: 100%;
 }
 </style>

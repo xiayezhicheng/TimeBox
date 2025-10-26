@@ -1,8 +1,7 @@
 <script setup lang="ts">
 import { computed, reactive, ref } from 'vue'
 import PlanCreateDialog from '../components/plan/PlanCreateDialog.vue'
-import { useTimeboxStore } from '../stores/timeboxes'
-import { useSettingsStore } from '../stores/settings'
+import { TITLE_NOT_ALLOWED_ERROR, useTimeboxStore } from '../stores/timeboxes'
 import type { Timebox } from '../types/models'
 import {
   formatDateTitle,
@@ -18,7 +17,6 @@ const VISIBLE_MINUTES = VIEW_END_MINUTES - VIEW_START_MINUTES
 const DAY_MINUTES = 24 * 60
 
 const timeboxes = useTimeboxStore()
-const settings = useSettingsStore()
 
 const mode = ref<'day' | 'week'>('day')
 const selectedDate = ref(new Date())
@@ -137,15 +135,6 @@ async function handleDialogSubmit(payload: {
   const duration = Math.max(30, Math.round(payload.duration / 15) * 15)
   const title = payload.title.trim()
 
-  if (!passesWhitelist(title)) {
-    await timeboxes.addLaterItem(title || `${payload.type === 'input' ? '输入' : '输出'}任务`, payload.type)
-    message.value = '标题不在本月主题内，已记入稍后清单。'
-    window.setTimeout(() => {
-      message.value = ''
-    }, 4000)
-    return
-  }
-
   try {
     await timeboxes.create({
       date: selectedDate.value,
@@ -160,19 +149,15 @@ async function handleDialogSubmit(payload: {
       message.value = ''
     }, 3000)
   } catch (error) {
-    message.value = error instanceof Error ? error.message : '创建时间盒失败'
+    if (error instanceof Error && error.message === TITLE_NOT_ALLOWED_ERROR) {
+      message.value = '标题不在本月主题内，已记入稍后清单。'
+    } else {
+      message.value = error instanceof Error ? error.message : '创建时间盒失败'
+    }
     window.setTimeout(() => {
       message.value = ''
     }, 4000)
   }
-}
-
-function passesWhitelist(title: string): boolean {
-  if (!title) return true
-  const tags = settings.settings.themeTags
-  if (!tags.length) return true
-  const lowered = title.toLowerCase()
-  return tags.some((tag) => lowered.includes(tag.toLowerCase()))
 }
 
 function changeDay(offset: number) {
