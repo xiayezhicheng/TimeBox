@@ -12,6 +12,7 @@ import { useSettingsStore } from '../../stores/settings'
 import { useSessionsStore } from '../../stores/sessions'
 import { useStatsStore } from '../../stores/stats'
 import { useDiscomfortStore } from '../../stores/discomfort'
+import { useSyncStore } from '../../stores/sync'
 
 const ui = useUIStore()
 const timeboxes = useTimeboxStore()
@@ -19,21 +20,29 @@ const settings = useSettingsStore()
 const sessions = useSessionsStore()
 const stats = useStatsStore()
 const discomfort = useDiscomfortStore()
+const syncStore = useSyncStore()
 const isDesktop = useMediaQuery('(min-width: 1025px)')
 
 onMounted(() => {
-  Promise.all([
-    timeboxes.bootstrap(),
-    settings.bootstrap(),
-    sessions.bootstrap(),
-    stats.bootstrap(),
-  ])
-    .then(() => {
-      stats.recalculateFromSessions(sessions.sessions)
+  syncStore
+    .bootstrap()
+    .catch((error) => {
+      console.error('Failed to bootstrap cloud sync', error)
     })
-    .catch((error) => console.error(error))
+    .finally(() => {
+      Promise.all([
+        timeboxes.bootstrap(),
+        settings.bootstrap(),
+        sessions.bootstrap(),
+        stats.bootstrap(),
+      ])
+        .then(() => {
+          stats.recalculateFromSessions(sessions.sessions)
+        })
+        .catch((error) => console.error(error))
 
-  discomfort.bootstrap()
+      discomfort.bootstrap()
+    })
 })
 </script>
 

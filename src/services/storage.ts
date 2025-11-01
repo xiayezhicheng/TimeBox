@@ -8,14 +8,14 @@ const STORAGE_KEYS = {
   laterList: 'laterList',
 } as const
 
-type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]
+export type StorageKey = (typeof STORAGE_KEYS)[keyof typeof STORAGE_KEYS]
 
 export interface StorageAdapter {
   getItem<T>(key: StorageKey): Promise<T | null> | T | null
   setItem<T>(key: StorageKey, value: T): Promise<void> | void
 }
 
-class LocalStorageAdapter implements StorageAdapter {
+export class LocalStorageAdapter implements StorageAdapter {
   getItem<T>(key: StorageKey): T | null {
     if (typeof window === 'undefined') return null
     const raw = window.localStorage.getItem(key)
@@ -52,6 +52,7 @@ async function read<T>(key: StorageKey, fallback: () => T): Promise<T> {
 async function write<T>(key: StorageKey, value: T): Promise<void> {
   await currentAdapter.setItem(key, value)
   if (typeof navigator !== 'undefined' && navigator.serviceWorker?.controller) {
+    const timestamp = Date.now()
     let transferable: unknown
     try {
       transferable = JSON.parse(JSON.stringify(value))
@@ -64,7 +65,7 @@ async function write<T>(key: StorageKey, value: T): Promise<void> {
       payload: {
         key,
         value: transferable,
-        timestamp: Date.now(),
+        timestamp,
       },
     })
   }

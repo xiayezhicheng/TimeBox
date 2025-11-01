@@ -49,6 +49,22 @@ npm run preview
 
 所有关键数据（时间盒、会话、设置、统计、稍后清单）默认存储于 LocalStorage，并通过 Service Worker 消息同步至 Cache Storage（保留近 30 天）。如需升级，可通过 `setStorageAdapter` 切换到 IndexedDB 或远端存储。
 
+## 云同步（Cloudflare D1）
+
+为了在多设备之间同步进度，需要在 Cloudflare Pages 上绑定 D1 数据库，并启用 Functions：
+
+1. **创建并绑定 D1**  
+   - 运行 `wrangler d1 create timebox-sync-db` 创建数据库，并记下返回的 `database_id`。  
+   - 更新根目录 `wrangler.toml` 中 `[[d1_databases]]` 的 `database_id`，并确保 Pages 项目已绑定同名数据库（环境名称需与 binding `DB` 保持一致）。
+2. **执行数据库迁移**  
+   - 本地执行 `wrangler d1 migrations apply timebox-sync-db`，或在 Cloudflare 控制台中执行 `db/migrations/0001_init.sql`，初始化 `sync_accounts` 与 `storage_records` 表。
+3. **部署 Functions**  
+   - Pages 会自动使用 `functions/` 下的处理器。若本地调试，可使用 `wrangler pages dev dist -- d1=DB` 启动并带上数据库绑定。
+4. **配置前端访问**  
+   - 若前端和 API 不同源，可通过 `VITE_SYNC_API_BASE` 指向 Worker/Pages Functions 的地址；同源部署时可忽略。
+5. **启用同步**  
+   - 访问应用的“设置”页，在“云同步”卡片中创建新的同步密钥或粘贴已有密钥，即可在各设备间共享时间盒、会话与设置。
+
 ## 无障碍与响应式
 
 - 支持键盘焦点、ARIA 标签、AA 对比度

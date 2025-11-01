@@ -1,0 +1,9 @@
+name = "timebox-sync"
+compatibility_date = "2024-11-06"
+pages_build_output_dir = "dist"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "timebox-sync-db"
+database_id = "c8ccd14b-1fe0-49a5-a3cd-e91e173524ce"
+migrations_dir = "db/migrations"
